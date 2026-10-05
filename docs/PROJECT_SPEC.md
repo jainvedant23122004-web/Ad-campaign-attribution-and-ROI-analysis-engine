@@ -2,9 +2,9 @@
 
 ## Status and authority
 
-This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. The repository includes PostgreSQL schema/setup and a synthetic CSV generator with a safe transactional loader. Successful schema initialization was reported by the user. Generator/loader execution and live verification remain pending; no journeys, attribution, analytics queries, benchmarks, or dashboards are implemented.
+This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. PostgreSQL setup, synthetic generation/loading, and SQL-based journey reconstruction are implemented. Journey reconstruction has been inspected but not executed against a live database during this milestone. Attribution credit assignment, campaign analytics, benchmarks, and dashboards remain unimplemented.
 
-This is a local college-level analytics and data engineering project. The current milestone covers synthetic CSV generation and loading only; later pipeline stages require separate implementation requests.
+This is a local college-level analytics and data engineering project. The current milestone covers journey reconstruction and touchpoint eligibility only; later pipeline stages require separate implementation requests.
 
 ## Core goal
 
@@ -61,9 +61,11 @@ Implement only these models:
 - **Last-click:** assign credit to the last eligible click before a conversion.
 - **Linear:** distribute credit equally across eligible clicks before a conversion.
 
-Use a configurable attribution window with an initial default of **7 days**, recorded as `ATTRIBUTION_WINDOW_DAYS=7` in `.env.example`. Attribution-window parsing is future work.
+Use a configurable attribution window with an initial default of **7 days**, recorded as `ATTRIBUTION_WINDOW_DAYS=7` in `.env.example`. `scripts/build_journeys.py` resolves a positive integer window from CLI, process environment, root `.env`, then the seven-day fallback. The window uses elapsed UTC days; eligibility is `conversion_time - window <= touchpoint_time < conversion_time` for the same user.
 
-Do not add Markov, Shapley, machine learning, time-decay, or position-based attribution unless explicitly requested later. Resolve eligibility boundaries, repeat clicks, timestamp ties, and conversions without eligible clicks before implementing journey reconstruction.
+Do not add Markov, Shapley, machine learning, time-decay, or position-based attribution unless explicitly requested later. Journey eligibility retains both impressions and clicks, repeated source events, and independent windows for each conversion. Ties can be retrieved deterministically by timestamp, type, then source event ID; this is a retrieval convention, not credit assignment. Conversions without eligible events remain in the source table. Future attribution models will use eligible clicks only, with no-click credit handling defined in that milestone.
+
+`sql/journeys.sql` defines the persistent `conversion_touchpoints` intermediate table with source-event provenance, restrictive foreign keys, per-conversion event uniqueness, recorded window days, and exact elapsed seconds. Denormalized user/campaign/creative/channel IDs and conversion times improve readability; SQL joins supply consistent source values. `sql/build_journeys.sql` combines eligible event types using `UNION ALL` and derives channels from campaigns. The builder creates only this intermediate structure, refuses populated rows unless `--rebuild` is explicit, and transactionally replaces only journey rows when rebuilding. Source tables remain unchanged. No attribution weights or results are stored.
 
 ## Business metrics
 
@@ -139,8 +141,8 @@ Do not implement Metabase configuration in the scaffolding milestone.
 | --- | --- |
 | `data/raw/` | Raw input files |
 | `data/generated/` | Locally generated synthetic datasets |
-| `scripts/` | Database setup, synthetic CSV generation, and safe loading; future pipeline scripts |
-| `sql/` | PostgreSQL schema; future analytics queries and optimization SQL |
+| `scripts/` | Database setup, synthetic generation/loading, and journey reconstruction |
+| `sql/` | Base/journey schemas and reconstruction SQL; future analytics/optimization SQL |
 | `notebooks/` | Future exploratory analysis |
 | `tests/` | Future tests |
 | `docs/PROJECT_SPEC.md` | Project scope and implementation constraints |
@@ -159,4 +161,4 @@ Do not create a real `.env`, initialize another Git repository, or commit anythi
 
 ## Next recommended implementation milestone
 
-**User journey reconstruction:** after manual generation/loading, define and implement eligible pre-conversion touchpoints using the configurable seven-day default window, including boundary, repeat-click, timestamp-tie, and no-click policies. Defer attribution algorithms, metrics, and dashboards. Do not begin this milestone automatically.
+**First-click, last-click, and linear attribution:** after manually building and inspecting journeys, implement campaign credit using eligible click touchpoints, deterministic tie handling, and an explicit no-click policy. Defer ROI/ROAS/CAC/LTV, dashboards, and benchmarks. Do not begin this milestone automatically.
