@@ -1,0 +1,11 @@
+campaign_id,channel_id,campaign_name,objective,start_date,end_date,created_at
+1,1,Google Search - Brand Search,acquisition,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00
+2,1,Google Search - Generic Search,acquisition,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00
+3,2,Meta - Prospecting,acquisition,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00
+4,2,Meta - Retargeting,acquisition,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00
+5,3,Programmatic Display - Awareness Display,awareness,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00
+6,3,Programmatic Display - Retargeting Display,acquisition,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00
+7,4,Affiliate - Partner A,acquisition,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00
+8,4,Affiliate - Partner B,acquisition,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00
+9,5,YouTube - Awareness Video,awareness,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00
+10,5,YouTube - Product Video,acquisition,2025-01-01,2025-03-31,2024-12-31T00:00:00+00:00

@@ -27,6 +27,11 @@ def get_engine() -> Engine:
     if url.get_backend_name() != "postgresql":
         raise ValueError("DATABASE_URL must use PostgreSQL (postgresql://...).")
 
+    # requirements.txt uses Psycopg 3; SQLAlchemy's plain PostgreSQL URL defaults
+    # to the older psycopg2 driver. Preserve explicitly configured driver names.
+    if url.drivername == "postgresql":
+        url = url.set(drivername="postgresql+psycopg")
+
     return create_engine(url, pool_pre_ping=True)
 
 

@@ -2,9 +2,9 @@
 
 ## Status and authority
 
-This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. The repository now includes the PostgreSQL schema and minimal database setup scripts, inspected but not verified against a live PostgreSQL instance. No business logic, data generator, analytics queries, benchmarks, or dashboards are implemented.
+This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. The repository includes PostgreSQL schema/setup and a synthetic CSV generator with a safe transactional loader. Successful schema initialization was reported by the user. Generator/loader execution and live verification remain pending; no journeys, attribution, analytics queries, benchmarks, or dashboards are implemented.
 
-This is a local college-level analytics and data engineering project. The current milestone covers the database foundation only; later pipeline stages require separate implementation requests.
+This is a local college-level analytics and data engineering project. The current milestone covers synthetic CSV generation and loading only; later pipeline stages require separate implementation requests.
 
 ## Core goal
 
@@ -31,7 +31,7 @@ Synthetic advertising events
     -> Metabase
 ```
 
-Use Python 3.12, PostgreSQL, SQLAlchemy, Pandas, Pytest, Metabase, and python-dotenv. The PostgreSQL driver in `requirements.txt` is psycopg2-binary, compatible with the template's `postgresql://` SQLAlchemy URL. Dependencies remain unpinned at this stage.
+Use Python 3.12, PostgreSQL, SQLAlchemy, Pandas, Pytest, Metabase, and python-dotenv. The PostgreSQL driver in `requirements.txt` is Psycopg 3 (`psycopg[binary]`); the connection helper selects it for plain `postgresql://` URLs. Dependencies remain unpinned at this stage.
 
 Do not introduce FastAPI, Flask, Django, AWS, Azure, GCP, Kafka, Redis, Airflow, Kubernetes, CI/CD pipelines, authentication, cloud deployment, microservices, frontend frameworks, or unnecessary abstractions.
 
@@ -107,7 +107,9 @@ Begin with a small development dataset so local scripts are fast to run. A later
 | Clicks | 5,000 |
 | Conversions | 1,000 |
 
-These are guidelines, not hard constraints. No data is generated in the scaffolding milestone.
+These are guidelines, not hard constraints. `scripts/generate_data.py` now implements defaults of seed 42, 5,000 users, 50,000 impressions, approximately 5,000 clicks and 1,000 conversions, 10 campaigns, and 30 creatives. The fixed window is 2025-01-01 through 2025-03-31 inclusive in UTC. It produces nine schema-compatible CSVs, with channel-specific responses and a small designed multi-touch cohort. Daily spend reconciles to event costs. Initial revenue receipts equal conversion values for the same transaction; later receipts represent additional revenue, so initial receipts and conversion values must not be summed together. No generation was executed in this milestone.
+
+`scripts/load_data.py` validates those CSVs, refuses populated project tables, serializes loads using table locks, and imports in one transaction without clearing data or recreating the schema. It preserves CSV IDs and transactionally advances existing identity sequences, requiring table ownership. Neither loading nor tests were executed. The next milestone begins after manual generation/loading.
 
 ## Database optimization requirement
 
@@ -137,7 +139,7 @@ Do not implement Metabase configuration in the scaffolding milestone.
 | --- | --- |
 | `data/raw/` | Raw input files |
 | `data/generated/` | Locally generated synthetic datasets |
-| `scripts/` | Database connection and initialization scripts; future pipeline scripts |
+| `scripts/` | Database setup, synthetic CSV generation, and safe loading; future pipeline scripts |
 | `sql/` | PostgreSQL schema; future analytics queries and optimization SQL |
 | `notebooks/` | Future exploratory analysis |
 | `tests/` | Future tests |
@@ -157,4 +159,4 @@ Do not create a real `.env`, initialize another Git repository, or commit anythi
 
 ## Next recommended implementation milestone
 
-**Small, reproducible synthetic dataset:** after manual database setup, generate and load a small local dataset with distinct channel behavior, valid relationships, chronological events, and consistent spending/revenue assumptions. Defer journey reconstruction, attribution, analytics, and dashboards. Do not begin this milestone automatically.
+**User journey reconstruction:** after manual generation/loading, define and implement eligible pre-conversion touchpoints using the configurable seven-day default window, including boundary, repeat-click, timestamp-tie, and no-click policies. Defer attribution algorithms, metrics, and dashboards. Do not begin this milestone automatically.
