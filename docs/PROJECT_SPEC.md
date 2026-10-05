@@ -2,9 +2,9 @@
 
 ## Status and authority
 
-This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. PostgreSQL setup, synthetic data, journeys, attribution, campaign/channel performance analytics, and observed LTV/CAC/acquisition cohorts are implemented. One real PostgreSQL cohort-report optimization is complete, using an isolated materialized view, exact reconciliation, and three paired EXPLAIN ANALYZE measurements. Attribution had already been manually verified by the user. Metabase dashboards, budget optimization, and deployment remain unimplemented.
+This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. PostgreSQL setup, synthetic data, journeys, attribution, campaign/channel performance analytics, and observed LTV/CAC/acquisition cohorts are implemented. One real PostgreSQL cohort-report optimization is complete, using an isolated materialized view, exact reconciliation, and three paired EXPLAIN ANALYZE measurements. Attribution had already been manually verified by the user. Metabase preparation is implemented in `sql/metabase_queries.sql`, `docs/METABASE_SETUP.md`, and `docs/DASHBOARD_SPEC.md`; manual local Metabase dashboard configuration remains pending. Budget optimization and deployment remain unimplemented.
 
-This is a local college-level analytics and data engineering project. The current milestone covers one measured PostgreSQL optimization only; dashboards and later stages require separate implementation requests.
+This is a local college-level analytics and data engineering project. The current milestone completes only dashboard SQL/documentation preparation for four dashboards; it does not install/start Metabase or configure its UI. No tests, benchmark reruns, dependency installation, or source writes were performed during preparation. Later stages require separate implementation requests.
 
 ## Core goal
 

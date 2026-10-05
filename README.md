@@ -2,9 +2,11 @@
 
 A college-level, local analytics and data engineering project for comparing mobile advertising attribution models and understanding campaign performance, return on investment, and customer lifetime value.
 
-**Current status:** PostgreSQL setup, synthetic data, journeys, attribution, campaign/channel performance analytics, and observed LTV/CAC/acquisition cohorts are implemented. One PostgreSQL optimization experiment is complete: the cohort report was materialized, reconciled exactly, and measured with three paired EXPLAIN ANALYZE runs. Attribution was previously manually verified by the user. Metabase dashboards, budget optimization, and deployment remain unimplemented.
+**Current status:** PostgreSQL setup, synthetic data, journeys, attribution, campaign/channel performance analytics, and observed LTV/CAC/acquisition cohorts are implemented. One PostgreSQL optimization experiment is complete: the cohort report was materialized, reconciled exactly, and measured with three paired EXPLAIN ANALYZE runs. Attribution was previously manually verified by the user. Metabase dashboard preparation is complete; manual local Metabase dashboard configuration is pending. Budget optimization and deployment remain unimplemented.
 
 The source of truth for future implementation is [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md).
+
+Metabase is the manual, local visualization layer. Follow [METABASE_SETUP.md](docs/METABASE_SETUP.md) and [DASHBOARD_SPEC.md](docs/DASHBOARD_SPEC.md), using [metabase_queries.sql](sql/metabase_queries.sql), to create **Campaign Overview**, **Attribution Model Comparison**, **LTV & Acquisition Economics**, and **Acquisition Cohort Analysis**. The cohort snapshot's measured median warm read improved from **6.063 ms to 0.037 ms (99.389741%)**, excluding refresh cost; snapshot use requires manual refresh. Metabase has not been installed, started, or configured by this milestone.
 
 ## Planned architecture
 
