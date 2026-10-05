@@ -2,9 +2,9 @@
 
 ## Status and authority
 
-This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. PostgreSQL setup, synthetic generation/loading, and SQL-based journey reconstruction are implemented. Journey reconstruction has been inspected but not executed against a live database during this milestone. Attribution credit assignment, campaign analytics, benchmarks, and dashboards remain unimplemented.
+This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. PostgreSQL setup, synthetic generation/loading, journeys, and first-click/last-click/linear attribution are implemented. Attribution has been inspected but not executed against a live database during this milestone. Campaign/channel analytics, ROI/ROAS reporting, CAC/LTV, benchmarks, and dashboards remain unimplemented.
 
-This is a local college-level analytics and data engineering project. The current milestone covers journey reconstruction and touchpoint eligibility only; later pipeline stages require separate implementation requests.
+This is a local college-level analytics and data engineering project. The current milestone covers the three click-attribution models only; later pipeline stages require separate implementation requests.
 
 ## Core goal
 
@@ -55,7 +55,7 @@ Schema decisions: generated identity keys; `TIMESTAMPTZ` event timestamps; nonne
 
 ## Attribution models and window
 
-Implement only these models:
+The following three models are implemented:
 
 - **First-click:** assign credit to the first eligible click before a conversion.
 - **Last-click:** assign credit to the last eligible click before a conversion.
@@ -63,9 +63,11 @@ Implement only these models:
 
 Use a configurable attribution window with an initial default of **7 days**, recorded as `ATTRIBUTION_WINDOW_DAYS=7` in `.env.example`. `scripts/build_journeys.py` resolves a positive integer window from CLI, process environment, root `.env`, then the seven-day fallback. The window uses elapsed UTC days; eligibility is `conversion_time - window <= touchpoint_time < conversion_time` for the same user.
 
-Do not add Markov, Shapley, machine learning, time-decay, or position-based attribution unless explicitly requested later. Journey eligibility retains both impressions and clicks, repeated source events, and independent windows for each conversion. Ties can be retrieved deterministically by timestamp, type, then source event ID; this is a retrieval convention, not credit assignment. Conversions without eligible events remain in the source table. Future attribution models will use eligible clicks only, with no-click credit handling defined in that milestone.
+Do not add Markov, Shapley, machine learning, time-decay, or position-based attribution unless explicitly requested later. Journey eligibility retains both impressions and clicks, repeated source events, and independent windows for each conversion. Attribution uses eligible clicks only; no-click conversions receive no attribution rows and no impression fallback. First-click orders by touchpoint time and click ID ascending; last-click orders both descending. Linear assigns 1/N to every eligible click, including repeated clicks from one campaign.
 
-`sql/journeys.sql` defines the persistent `conversion_touchpoints` intermediate table with source-event provenance, restrictive foreign keys, per-conversion event uniqueness, recorded window days, and exact elapsed seconds. Denormalized user/campaign/creative/channel IDs and conversion times improve readability; SQL joins supply consistent source values. `sql/build_journeys.sql` combines eligible event types using `UNION ALL` and derives channels from campaigns. The builder creates only this intermediate structure, refuses populated rows unless `--rebuild` is explicit, and transactionally replaces only journey rows when rebuilding. Source tables remain unchanged. No attribution weights or results are stored.
+`sql/journeys.sql` defines the persistent `conversion_touchpoints` intermediate table with source-event provenance, restrictive foreign keys, per-conversion event uniqueness, recorded window days, and exact elapsed seconds. Denormalized user/campaign/creative/channel IDs and conversion times improve readability; SQL joins supply consistent source values. `sql/build_journeys.sql` combines eligible event types using `UNION ALL` and derives channels from campaigns. The builder creates only this intermediate structure, refuses populated rows unless `--rebuild` is explicit, and transactionally replaces only journey rows when rebuilding. Source tables remain unchanged. No attribution weights or results are stored in the journey table.
+
+`sql/attribution.sql` defines `attribution_results` at conversion/click/model granularity, with restrictive foreign keys, unique conversion/model/click pairs, and at most one first/last winner per conversion. Weights and allocated conversion values use `NUMERIC(38, 24)`; each value equals source conversion value multiplied by the stored weight, subject to negligible storage precision. `sql/run_attribution.sql` implements window-function ranking/counting. `sql/validate_attribution.sql` checks model coverage, cardinality, eligible-click mappings, weight totals within `1e-12`, and conversion-value totals within `1e-6` currency units. `scripts/run_attribution.py` creates the result structure, refuses populated results unless `--rebuild` is explicit, and transactionally inserts/validates all models. Only attribution rows are replaced during rebuild; source and journey rows are unchanged. Journeys must be current before attribution, and both snapshots must be rebuilt after source/window changes. No campaign/channel aggregation is implemented yet.
 
 ## Business metrics
 
@@ -141,8 +143,8 @@ Do not implement Metabase configuration in the scaffolding milestone.
 | --- | --- |
 | `data/raw/` | Raw input files |
 | `data/generated/` | Locally generated synthetic datasets |
-| `scripts/` | Database setup, synthetic generation/loading, and journey reconstruction |
-| `sql/` | Base/journey schemas and reconstruction SQL; future analytics/optimization SQL |
+| `scripts/` | Database setup, synthetic generation/loading, journeys, and attribution |
+| `sql/` | Schemas, journey/attribution SQL, and attribution validation; future analytics/optimization SQL |
 | `notebooks/` | Future exploratory analysis |
 | `tests/` | Future tests |
 | `docs/PROJECT_SPEC.md` | Project scope and implementation constraints |
@@ -161,4 +163,4 @@ Do not create a real `.env`, initialize another Git repository, or commit anythi
 
 ## Next recommended implementation milestone
 
-**First-click, last-click, and linear attribution:** after manually building and inspecting journeys, implement campaign credit using eligible click touchpoints, deterministic tie handling, and an explicit no-click policy. Defer ROI/ROAS/CAC/LTV, dashboards, and benchmarks. Do not begin this milestone automatically.
+**Campaign/channel performance reporting and model comparison:** after manually running and inspecting attribution, aggregate event counts, daily spend, attributed conversion credit, and allocated conversion values per model; define metric denominators and zero handling before implementing ROI/ROAS reporting. Defer CAC/LTV/cohort analysis, dashboards, and benchmarks. Do not begin this milestone automatically.

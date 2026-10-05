@@ -2,7 +2,7 @@
 
 A college-level, local analytics and data engineering project for comparing mobile advertising attribution models and understanding campaign performance, return on investment, and customer lifetime value.
 
-**Current status:** PostgreSQL schema/setup, synthetic CSV generation/loading, and SQL-based journey reconstruction are implemented. The journey builder has been inspected only and **has not been executed or verified against a live database during this milestone**. Attribution credit assignment, metrics, optimization benchmarks, and dashboards remain unimplemented.
+**Current status:** PostgreSQL setup, synthetic data generation/loading, journey reconstruction, and first-click/last-click/linear attribution are implemented. The attribution runner has been inspected only and **has not been executed or verified against a live database during this milestone**. Campaign/channel analytics, ROI/ROAS reporting, CAC, LTV, optimization benchmarks, and dashboards remain unimplemented.
 
 The source of truth for future implementation is [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md).
 
@@ -46,17 +46,21 @@ Metabase
 |   |   `-- .gitkeep
 |   `-- generated/       # Nine CSVs written when generation is run manually
 |       `-- .gitkeep
-|-- scripts/             # Database setup, data generation/loading, and journeys
+|-- scripts/             # Setup, data generation/loading, journeys, and attribution
 |   |-- build_journeys.py
 |   |-- db.py
 |   |-- generate_data.py
 |   |-- init_db.py
 |   |-- load_data.py
+|   |-- run_attribution.py
 |   `-- .gitkeep
 |-- sql/                 # SQL is the schema source of truth
+|   |-- attribution.sql
 |   |-- build_journeys.sql
 |   |-- journeys.sql
+|   |-- run_attribution.sql
 |   |-- schema.sql
+|   |-- validate_attribution.sql
 |   `-- .gitkeep
 |-- notebooks/           # Future exploratory analysis
 |   `-- .gitkeep
@@ -110,9 +114,10 @@ python scripts/init_db.py
 python scripts/generate_data.py --seed 42
 python scripts/load_data.py
 python scripts/build_journeys.py --window-days 7
+python scripts/run_attribution.py
 ```
 
-`init_db.py` executes `sql/schema.sql` in one transaction and is intended for a fresh, empty database. A repeat run fails on existing tables and rolls back. **Skip schema initialization if already done. Skip generation/loading if source data is already loaded**, and run only the journey builder. These commands are instructions for manual use and were not executed during this milestone.
+`init_db.py` executes `sql/schema.sql` in one transaction and is intended for a fresh, empty database. A repeat run fails on existing tables and rolls back. **Skip schema initialization and data generation/loading if already done. Skip journey building if journeys are already current**, and run only attribution. These commands are instructions for manual use and were not executed during this milestone.
 
 ## Synthetic data workflow
 
@@ -138,7 +143,7 @@ Channel parameters are centralized in `CHANNEL_BEHAVIORS` and reflect educationa
 | Affiliate | Low volume; high click and conversion tendencies | Click costs |
 | YouTube | Awareness volume; low clicks; modest boost to subsequent conversion likelihood | Impression costs |
 
-Users have different interests and channel preferences, and exposure weights shift over their simulated activity periods. A designed cohort of up to 100 users has Display impression → Meta click → Google Search click → conversion sequences within a few days. These users receive no other touches. This ensures future attribution models can assign different campaign credit without implementing attribution now.
+Users have different interests and channel preferences, and exposure weights shift over their simulated activity periods. A designed cohort of up to 100 users has Display impression → Meta click → Google Search click → conversion sequences within a few days. These users receive no other touches. The separate attribution stage can assign different campaign credit to these clicks without special-casing cohort users.
 
 All money is exact `Decimal` in a single project-wide currency. Daily campaign spend equals that day's impression costs plus click costs; event costs must not be added to it again. Every converting user has an initial revenue receipt equal to the conversion value one minute after conversion. Some users have later receipts, with more repeats among higher-value users. The initial receipt and conversion value describe the same transaction and must not be summed together in future revenue analysis.
 
@@ -170,7 +175,7 @@ The seven-day default represents 168 elapsed hours. The exact eligibility rule i
 conversion_time - window <= touchpoint_time < conversion_time
 ```
 
-The lower boundary is included; the conversion timestamp and all later events are excluded. Both impressions and clicks are retained. Repeated events are kept as distinct source IDs; an impression and its subsequent click are separate touchpoints. Each conversion has an independent window, so one event may qualify for multiple conversions. This is candidate eligibility; future first-click, last-click, and linear models will select clicks according to the project specification. No weights, campaign credit, attributed conversions, or attributed revenue are assigned here.
+The lower boundary is included; the conversion timestamp and all later events are excluded. Both impressions and clicks are retained. Repeated events are kept as distinct source IDs; an impression and its subsequent click are separate touchpoints. Each conversion has an independent window, so one event may qualify for multiple conversions. Journey building records candidate eligibility; the separate attribution stage selects eligible clicks. Journey building itself assigns no weights, campaign credit, attributed conversions, or attributed revenue.
 
 Window precedence is `--window-days`, process `ATTRIBUTION_WINDOW_DAYS`, the root `.env`, then 7. Values must be positive integers that fit a PostgreSQL `INTEGER`. The script sets the transaction timezone to UTC. The chosen window is stored on every touchpoint so eligibility can be inspected even after configuration changes.
 
@@ -240,6 +245,115 @@ ORDER BY conversion_id
 LIMIT 20;
 ```
 
+## Click attribution
+
+`scripts/run_attribution.py` applies three models in PostgreSQL to `conversion_touchpoints` rows where `touchpoint_type = 'click'`. Impressions remain available for journey inspection and receive no attribution rows. A conversion with no eligible clicks stays unattributed under every model, with no impression fallback; the runner reports its count.
+
+| Model | Policy | Deterministic ordering |
+| --- | --- | --- |
+| `first_click` | One earliest eligible click receives weight 1 and the full conversion value | `touchpoint_time ASC, click_id ASC` |
+| `last_click` | One latest eligible click receives weight 1 and the full conversion value | `touchpoint_time DESC, click_id DESC` |
+| `linear` | Each of N eligible clicks receives weight 1/N and value `conversion_value * weight` | Every eligible click is retained |
+
+Repeated clicks from the same campaign are separate linear shares. Results remain at **conversion + click + model** granularity; campaign/channel aggregation is future work. For example, two eligible clicks from different campaigns yield full credit to different clicks under first/last click and half credit to each under linear. Actual results depend on the loaded journeys; no example results or counts are hardcoded.
+
+`sql/attribution.sql` defines `attribution_results`:
+
+| Column | PostgreSQL type / meaning |
+| --- | --- |
+| `attribution_result_id` | `BIGINT`, generated identity primary key |
+| `conversion_id` | `BIGINT`, foreign key to conversions |
+| `campaign_id` | `BIGINT`, foreign key to campaigns |
+| `channel_id` | `BIGINT`, foreign key to channels |
+| `creative_id` | `BIGINT`, composite foreign key with campaign ID to creatives |
+| `click_id` | `BIGINT`, foreign key to the credited click |
+| `attribution_model` | `TEXT`, only `first_click`, `last_click`, or `linear` |
+| `attribution_weight` | `NUMERIC(38, 24)`, greater than zero and at most one |
+| `attributed_conversion_value` | `NUMERIC(38, 24)`, nonnegative allocated value |
+| `created_at` | `TIMESTAMPTZ`, defaults to transaction time |
+
+Every column is required. Foreign keys use restrictive deletion. Unique `(conversion_id, attribution_model, click_id)` pairs prevent double credit; a partial unique index permits at most one first-click or last-click winner per conversion. Additional `(campaign_id, attribution_model)` and `(channel_id, attribution_model)` indexes support future summaries. The uniqueness index already supports conversion/model lookup, so no redundant standalone indexes are added.
+
+`sql/run_attribution.sql` uses `ROW_NUMBER()` for earliest/latest selection and `COUNT(*) OVER (PARTITION BY conversion_id)` for linear shares. Decimal division starts with 24 decimal places; values are allocated from stored weights. There is no cent rounding or residual assignment to a favored click. Recurring fractions may differ negligibly from exact conservation because of finite numeric precision.
+
+`sql/validate_attribution.sql` runs **inside the transaction before commit**. It requires all three model groups for every conversion with eligible clicks, one first/last row, one linear row per eligible click, and matching eligible click/campaign/channel/creative relationships. Each conversion/model must satisfy:
+
+```text
+abs(sum(weights) - 1) <= 0.000000000001
+abs(sum(allocated conversion values) - conversion_value) <= 0.000001
+```
+
+These are absolute numeric tolerances: one trillionth of credit and one millionth of a currency unit. Violations fail clearly and roll back all changes. The success summary prints actual conversion/model row counts and confirms weight/value validation, including zero-row models when no conversions have eligible clicks.
+
+With the base schema, source data, and current journeys already available, run manually:
+
+```powershell
+python scripts/run_attribution.py
+```
+
+The runner creates only the attribution table/indexes if absent and refuses populated results by default. To replace only attribution results:
+
+```powershell
+python scripts/run_attribution.py --rebuild
+```
+
+Creation, optional deletion, insertion, and validation share one transaction. A failed rebuild restores previous attribution rows. Advisory and table locks protect overlapping executions and keep source/journey reads consistent. Source events and journey rows are not modified. Use the database role with source/journey read/lock access and permission to create/write the result table; lock waits are limited to five seconds and individual statements to 60 seconds.
+
+Attribution consumes the existing journey window; it does not read a new window from `.env` or rebuild journeys automatically. After changing the window or source events, rebuild journeys first and then attribution with explicit `--rebuild` flags. Attribution rows intentionally have no foreign key to intermediate journey rows, permitting this sequence. The runner rejects existing eligible-click rows whose source mappings or timestamps have changed, but does not detect newly added events absent from a stale snapshot; keeping journeys current remains part of the workflow.
+
+Manual sanity queries (not executed during this milestone):
+
+```sql
+SELECT attribution_model, COUNT(*)
+FROM attribution_results
+GROUP BY attribution_model
+ORDER BY attribution_model;
+
+-- Expected: zero rows; the runner uses the same strict weight tolerance.
+SELECT conversion_id, attribution_model,
+       SUM(attribution_weight) AS total_weight
+FROM attribution_results
+GROUP BY conversion_id, attribution_model
+HAVING ABS(SUM(attribution_weight) - 1) > 0.000000000001;
+
+-- Expected: zero rows.
+SELECT r.conversion_id, r.attribution_model,
+       SUM(r.attributed_conversion_value) AS total_value, c.conversion_value
+FROM attribution_results AS r
+JOIN conversions AS c ON c.conversion_id = r.conversion_id
+GROUP BY r.conversion_id, r.attribution_model, c.conversion_value
+HAVING ABS(SUM(r.attributed_conversion_value) - c.conversion_value) > 0.000001;
+
+-- Discover a multi-click conversion and show every click under every model.
+-- Missing first/last result rows are displayed as zero credit for inspection only.
+WITH example AS (
+    SELECT conversion_id
+    FROM conversion_touchpoints
+    WHERE touchpoint_type = 'click'
+    GROUP BY conversion_id
+    HAVING COUNT(*) >= 2 AND COUNT(DISTINCT campaign_id) >= 2
+    ORDER BY conversion_id
+    LIMIT 1
+), models (attribution_model) AS (
+    VALUES ('first_click'), ('last_click'), ('linear')
+)
+SELECT c.conversion_id, c.conversion_value, m.attribution_model,
+       t.click_id, t.touchpoint_time, ca.campaign_name, ch.channel_name,
+       COALESCE(r.attribution_weight, 0) AS weight,
+       COALESCE(r.attributed_conversion_value, 0) AS allocated_value
+FROM example AS e
+JOIN conversions AS c ON c.conversion_id = e.conversion_id
+JOIN conversion_touchpoints AS t ON t.conversion_id = c.conversion_id
+CROSS JOIN models AS m
+JOIN campaigns AS ca ON ca.campaign_id = t.campaign_id
+JOIN channels AS ch ON ch.channel_id = ca.channel_id
+LEFT JOIN attribution_results AS r
+    ON r.conversion_id = c.conversion_id AND r.click_id = t.click_id
+    AND r.attribution_model = m.attribution_model
+WHERE t.touchpoint_type = 'click'
+ORDER BY m.attribution_model, t.touchpoint_time, t.click_id;
+```
+
 ## Database foundation
 
 The nine tables are `users`, `channels`, `campaigns`, `creatives`, `impressions`, `clicks`, `conversions`, `campaign_spend`, and `user_revenue`.
@@ -252,7 +366,7 @@ Initial indexes cover user/time lookups on impressions, clicks, conversions, and
 
 Dependencies are deliberately unpinned in this initial scaffold. Version pinning can follow once the implementation is checked with Python 3.12.
 
-**Validation for this milestone is limited to source/SQL inspection and lightweight Python syntax checks. Journey reconstruction and database writes were not executed. No tests, source regeneration/reloading, dependency installation, or benchmarks were run.**
+**Validation for this milestone is limited to source/SQL inspection and lightweight Python syntax checks. Attribution execution and database writes were not performed. No tests, source regeneration/reloading, dependency installation, or benchmarks were run.**
 
 ## Planned milestones
 
@@ -260,7 +374,7 @@ Dependencies are deliberately unpinned in this initial scaffold. Version pinning
 2. **Implemented: PostgreSQL schema and local database configuration.** Successful initialization reported by the user.
 3. **Implemented: synthetic CSV generator and safe PostgreSQL loader.** Source-data preparation is available for manual use.
 4. **Implemented: user journey reconstruction and configurable eligibility.** Live journey execution/verification is pending.
-5. **Next: first-click, last-click, and linear attribution using eligible clicks.**
-6. Campaign metrics, simple LTV/cohort analysis, and model comparison.
+5. **Implemented: first-click, last-click, and linear attribution using eligible clicks.** Live attribution execution/verification is pending.
+6. **Next: campaign/channel performance reporting and model comparison**, followed by simple CAC/LTV/cohort analysis.
 7. One measured PostgreSQL query optimization using `EXPLAIN ANALYZE` before and after the change.
 8. Metabase Campaign Overview, Attribution Model Comparison, and LTV / Cohort Analysis dashboards.
