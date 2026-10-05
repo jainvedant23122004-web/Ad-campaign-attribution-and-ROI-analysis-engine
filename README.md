@@ -2,7 +2,7 @@
 
 A college-level, local analytics and data engineering project for comparing mobile advertising attribution models and understanding campaign performance, return on investment, and customer lifetime value.
 
-**Current status:** repository scaffold only. The database schema, synthetic data generator, journey reconstruction, attribution engine, metrics, optimization benchmarks, and dashboards have not been implemented. No business logic exists yet.
+**Current status:** PostgreSQL schema, environment loading, a minimal SQLAlchemy connection helper, and a schema initialization script are implemented. They have been inspected only and **have not been verified against a live PostgreSQL instance**. Synthetic data generation, journey reconstruction, attribution, metrics, optimization benchmarks, and dashboards remain unimplemented.
 
 The source of truth for future implementation is [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md).
 
@@ -46,9 +46,12 @@ Metabase
 |   |   `-- .gitkeep
 |   `-- generated/       # Future synthetic datasets
 |       `-- .gitkeep
-|-- scripts/             # Future local Python scripts
+|-- scripts/             # Local database setup
+|   |-- db.py
+|   |-- init_db.py
 |   `-- .gitkeep
-|-- sql/                 # Future schema and analytics SQL
+|-- sql/                 # SQL is the schema source of truth
+|   |-- schema.sql
 |   `-- .gitkeep
 |-- notebooks/           # Future exploratory analysis
 |   `-- .gitkeep
@@ -64,7 +67,7 @@ Metabase
 
 ## Setup prerequisites and instructions
 
-Install Python 3.12 and Git, and use Windows PowerShell from the repository root. PostgreSQL will be required in later implementation stages; Metabase will be required at the dashboard milestone. Neither service is configured by this scaffold.
+Install Python 3.12, Git, and PostgreSQL, and use Windows PowerShell from the repository root. Metabase will be required at the later dashboard milestone. The scripts do not install or start PostgreSQL, create database users, or create the database itself.
 
 Create and activate a virtual environment, then install the Python dependencies:
 
@@ -81,23 +84,49 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 .\.venv\Scripts\Activate.ps1
 ```
 
-When configuring the database in a later milestone, copy the configuration template and replace the placeholder credentials locally:
+Create an empty database manually using pgAdmin or an existing PostgreSQL administrator connection in `psql`:
+
+```sql
+CREATE DATABASE ad_attribution;
+```
+
+Copy the configuration template:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-`.env` and `.venv/` are ignored by Git. No real `.env` file is included. The template records a planned default attribution window of 7 days; configuration loading has not been implemented.
+Edit the local `.env` and replace the placeholder username, password, host, and port in `DATABASE_URL` with your local PostgreSQL settings. URL-encode special characters in credentials. `.env` and `.venv/` are ignored by Git; no real `.env` file is included. The helper loads `.env` relative to the repository root and preserves existing process environment variables.
+
+After configuring the database and credentials, initialize the schema:
+
+```powershell
+python scripts/init_db.py
+```
+
+This command opens a live database connection and executes `sql/schema.sql` in one transaction. It is intended for a fresh, empty database. A repeat run fails on existing tables and rolls back; it does not drop tables or silently skip existing definitions. These setup commands are instructions for manual use and were not executed during this milestone.
+
+For future scripts in `scripts/`, use `from db import get_engine`, create `engine = get_engine()`, and manage connections with `with engine.connect() as connection:`. Call `engine.dispose()` when finished. Code imported from the repository root can use `from scripts.db import get_engine`. `get_connection()` is also available for a simple connection context. Importing the helper or calling `get_engine()` does not connect; opening a connection does. The template retains a seven-day attribution-window setting; attribution-window parsing is deferred.
+
+## Database foundation
+
+The nine tables are `users`, `channels`, `campaigns`, `creatives`, `impressions`, `clicks`, `conversions`, `campaign_spend`, and `user_revenue`.
+
+Channels own campaigns; campaigns own creatives. Impressions and clicks reference a user, campaign, and matching creative. Conversions and revenue reference users; daily spend references campaigns and is unique per campaign/date. All foreign keys use restrictive deletion to protect history. Conversions have no attributed campaign field.
+
+Money uses nonnegative `NUMERIC(18, 6)` in one project-wide currency. Event timestamps use `TIMESTAMPTZ`. Signup dates can be absent before acquisition; campaign end dates can be absent for ongoing campaigns. Country values are intended as two-letter codes. Device and creative types remain text fields without separate type tables.
+
+Initial indexes cover user/time lookups on impressions, clicks, conversions, and revenue, plus campaign/time lookups on impressions and clicks. Primary keys and unique constraints provide their own indexes, including campaign/date spend uniqueness. No materialized views or benchmarks exist yet.
 
 Dependencies are deliberately unpinned in this initial scaffold. Version pinning can follow once the implementation is checked with Python 3.12.
 
-**Scaffolding validation is limited to lightweight file inspection. Do not run test commands, automated validation frameworks, database benchmarks, or expensive workloads during this step.**
+**Validation for this milestone is limited to lightweight source-code and file inspection. No tests, database initialization, dependency installation, benchmarks, or expensive workloads were run.**
 
 ## Planned milestones
 
 1. **Completed: repository scaffold and project specification.**
-2. **Next: PostgreSQL schema and local database configuration.** Define the core tables, relationships, and constraints in `sql/`, and add a minimal environment configuration and database connection script in `scripts/`.
-3. Small, reproducible synthetic dataset with distinct channel behavior.
+2. **Implemented: PostgreSQL schema and local database configuration.** Live PostgreSQL verification is pending.
+3. **Next: small, reproducible synthetic dataset with distinct channel behavior**, stored in PostgreSQL after manual schema setup.
 4. User journey reconstruction with a configurable attribution window.
 5. First-click, last-click, and linear attribution.
 6. Campaign metrics, simple LTV/cohort analysis, and model comparison.

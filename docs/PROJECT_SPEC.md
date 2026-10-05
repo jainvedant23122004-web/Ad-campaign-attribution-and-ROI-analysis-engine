@@ -2,9 +2,9 @@
 
 ## Status and authority
 
-This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. The repository currently contains only directories, dependency declarations, a configuration template, and documentation. No database schema, business logic, data generator, analytics queries, benchmarks, or dashboards are implemented.
+This document is the source of truth for future implementation of **Ad Campaign Attribution & ROI Analysis Engine**. The repository now includes the PostgreSQL schema and minimal database setup scripts, inspected but not verified against a live PostgreSQL instance. No business logic, data generator, analytics queries, benchmarks, or dashboards are implemented.
 
-This is a local college-level analytics and data engineering project. The current milestone is scaffolding only; implementation begins in a separately requested milestone.
+This is a local college-level analytics and data engineering project. The current milestone covers the database foundation only; later pipeline stages require separate implementation requests.
 
 ## Core goal
 
@@ -49,7 +49,9 @@ The eventual database will represent:
 - Campaign spend
 - User revenue
 
-The full SQL schema, relationships, data types, and constraints will be defined in the database milestone, not during scaffolding.
+The schema is defined in `sql/schema.sql`; SQL remains the primary source of schema definitions. `scripts/db.py` loads database configuration and exposes SQLAlchemy connection helpers. `scripts/init_db.py` initializes an existing empty database in one transaction without creating the database or dropping existing data.
+
+Schema decisions: generated identity keys; `TIMESTAMPTZ` event timestamps; nonnegative `NUMERIC(18, 6)` monetary values in one project-wide currency; optional signup dates for users exposed before signup; optional campaign end dates; restrictive foreign-key deletes; composite event foreign keys enforcing creative/campaign consistency; and one spend row per campaign/date. Campaign spend will be the aggregate spending source for future metrics; event costs are supporting detail, not additional spend to sum on top. Conversion values and user revenue represent separate analytical records; their future overlap policy must be defined before revenue metrics are implemented.
 
 ## Attribution models and window
 
@@ -59,7 +61,7 @@ Implement only these models:
 - **Last-click:** assign credit to the last eligible click before a conversion.
 - **Linear:** distribute credit equally across eligible clicks before a conversion.
 
-Use a configurable attribution window with an initial default of **7 days**, recorded as `ATTRIBUTION_WINDOW_DAYS=7` in `.env.example`. Configuration loading is future work.
+Use a configurable attribution window with an initial default of **7 days**, recorded as `ATTRIBUTION_WINDOW_DAYS=7` in `.env.example`. Attribution-window parsing is future work.
 
 Do not add Markov, Shapley, machine learning, time-decay, or position-based attribution unless explicitly requested later. Resolve eligibility boundaries, repeat clicks, timestamp ties, and conversions without eligible clicks before implementing journey reconstruction.
 
@@ -135,8 +137,8 @@ Do not implement Metabase configuration in the scaffolding milestone.
 | --- | --- |
 | `data/raw/` | Raw input files |
 | `data/generated/` | Locally generated synthetic datasets |
-| `scripts/` | Local Python scripts for the planned pipeline |
-| `sql/` | Future schema, analytics queries, and optimization SQL |
+| `scripts/` | Database connection and initialization scripts; future pipeline scripts |
+| `sql/` | PostgreSQL schema; future analytics queries and optimization SQL |
 | `notebooks/` | Future exploratory analysis |
 | `tests/` | Future tests |
 | `docs/PROJECT_SPEC.md` | Project scope and implementation constraints |
@@ -155,4 +157,4 @@ Do not create a real `.env`, initialize another Git repository, or commit anythi
 
 ## Next recommended implementation milestone
 
-**PostgreSQL schema and local database configuration:** define tables, relationships, and constraints for the listed advertising entities in `sql/`; add minimal environment configuration and a database connection script in `scripts/`; document local database setup. Defer synthetic data generation, attribution, analytics, and dashboards to subsequent milestones. Do not begin this milestone automatically.
+**Small, reproducible synthetic dataset:** after manual database setup, generate and load a small local dataset with distinct channel behavior, valid relationships, chronological events, and consistent spending/revenue assumptions. Defer journey reconstruction, attribution, analytics, and dashboards. Do not begin this milestone automatically.
